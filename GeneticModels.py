@@ -88,7 +88,7 @@ class Environment:
                 panel_left = self.grid_size + 10
                 panel_top = 10
                 panel_width = max(0, self.wid - panel_left - 10)
-                panel_height = 170
+                panel_height = 200
                 if panel_width > 10:
                     stats_rect = Rect(panel_left, panel_top, panel_width, panel_height)
                     draw.rect(self.screen, [25,25,40], stats_rect, border_radius=6)
@@ -100,7 +100,7 @@ class Environment:
                     f"Children:  {round(a.child,4)}",
                     f"Energy:    {round(a.energy,4)}",
                     f"Traveled:  {round(a.traveled,4)}",
-                    f"Generation: {a.generation}"
+                    f"Generation: {a.generation}",
                     f"X: {round(a.x)}, Y: {round(a.y)}"
                 ]
                 yPos = panel_top + 15
@@ -263,7 +263,7 @@ class Environment:
         # Panel bounds on the right side
         panel_left = self.grid_size + 10
         panel_right = self.wid - 10
-        panel_top = 200
+        panel_top = 230
         panel_bottom = self.hei - 20
         panel_width = max(0, panel_right - panel_left)
         panel_height = max(0, panel_bottom - panel_top)
@@ -499,8 +499,11 @@ class Agent:
         a.x = newX
         a.y = newY
         a.brain = self.brain.clone()
-        a.brain.mutate()
         a.color = self.color
+        if random.random()<0.5: 
+            a.brain.mutate()
+            # Change Color slightly
+            a.color = [a.color[0] + random.randint(-10,10),a.color[1] + random.randint(-10,10),a.color[2] + random.randint(-10,10)]
         a.generation = self.generation+1
         self.env.add_agent(a)
         self.child+=1
@@ -511,7 +514,10 @@ class Agent:
         a.y = self.y
         a.color = self.color
         a.brain = self.brain.clone()
-        a.brain.mutate()
+        if random.random()<0.5:
+            a.brain.mutate()
+            # Change Color slightly
+            a.color = [a.color[0] + random.randint(-10,10),a.color[1] + random.randint(-10,10),a.color[2] + random.randint(-10,10)]
         return a
     
     def attack(self):

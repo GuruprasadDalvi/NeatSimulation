@@ -16,7 +16,12 @@ screen = pygame.display.set_mode((WIDTH,HEIGH))
 
 
 
-
+log_path = "population_log.csv"
+with open(log_path, mode="w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["age", "population"])
+            
+            
 # Create window
 pygame.display.set_caption("Simulation")
 running = True
@@ -60,7 +65,6 @@ while running:
     )
     # Log population to CSV every 25 steps
     if env.age > 0 and env.age % 10 == 0:
-        log_path = "population_log.csv"
         file_exists = os.path.exists(log_path)
         with open(log_path, mode="a", newline="") as f:
             writer = csv.writer(f)
