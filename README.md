@@ -6,6 +6,7 @@ A Python project exploring evolutionary algorithms in a grid-based environment. 
 - **Grid environment** with agents interacting over discrete time steps
 - **Neural networks** and **genetic operators** for evolving behavior
 - **Logging** of population metrics over time (`population_log.csv`)
+- **NEAT brain visualization** with proper rendering of recurrent cycles
 
 ### Project Structure
 - `main.py`: Entry point to run a simulation
@@ -30,6 +31,10 @@ python -m venv .venv
 .venv\\Scripts\\activate
 python main.py
 ```
+
+While running:
+- Click on the grid to select an agent and view its brain in the right-side panel.
+- The brain renderer supports recurrent connections (cycles); connection color encodes weight sign and thickness encodes magnitude.
 
 ### Configuration
 - Adjust parameters inside `main.py`, `Environment.py`, or genetic/NEAT modules as needed.

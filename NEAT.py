@@ -758,7 +758,39 @@ class Network:
         def thickness_for_weight(weight: float) -> int:
             return max(1, int(1 + 2 * min(1.0, abs(weight))))
 
-        # Draw connections first
+        # Helpers for curved drawing (for recurrent/back edges and cycles)
+        def draw_quadratic_curve(surf, color, start, end, bend: float, width_px: int) -> None:
+            x1, y1 = start
+            x2, y2 = end
+            mx = (x1 + x2) * 0.5
+            my = (y1 + y2) * 0.5
+            dx = x2 - x1
+            dy = y2 - y1
+            length = math.hypot(dx, dy) or 1.0
+            # Perpendicular unit vector
+            nx = -dy / length
+            ny = dx / length
+            cx = mx + nx * bend
+            cy = my + ny * bend
+            # Sample quadratic Bezier
+            steps = 20
+            pts: List[Tuple[int, int]] = []
+            for i in range(steps + 1):
+                t = i / steps
+                omt = 1.0 - t
+                bx = omt * omt * x1 + 2 * omt * t * cx + t * t * x2
+                by = omt * omt * y1 + 2 * omt * t * cy + t * t * y2
+                pts.append((int(round(bx)), int(round(by))))
+            pygame.draw.lines(surf, color, False, pts, width_px)
+
+        def draw_self_loop(surf, color, center: Tuple[int, int], radius: int, width_px: int) -> None:
+            cx, cy = center
+            loop_r = max(14, radius * 2)
+            # Place loop to the right of the node
+            rect = pygame.Rect(cx + radius + 4, cy - loop_r // 2, loop_r, loop_r)
+            pygame.draw.ellipse(surf, color, rect, width_px)
+
+        # Draw connections first (behind nodes)
         for conn in self.genome.connections.values():
             p1 = node_pos.get(conn.in_node)
             p2 = node_pos.get(conn.out_node)
@@ -766,7 +798,28 @@ class Network:
                 continue
             color = color_for_weight(conn.weight, conn.enabled)
             width_px = thickness_for_weight(conn.weight)
-            pygame.draw.line(surface, color, p1, p2, width_px)
+
+            # Self-loop: draw as an ellipse next to the node
+            if conn.in_node == conn.out_node:
+                draw_self_loop(surface, color, p1, node_radius, width_px)
+                continue
+
+            l_in = layer_of.get(conn.in_node, 0)
+            l_out = layer_of.get(conn.out_node, 0)
+
+            # Backward or lateral edges: draw curved to indicate recurrence/cycle
+            if l_out <= l_in:
+                # Bend magnitude scales with horizontal distance and layer difference
+                dx = abs(p2[0] - p1[0])
+                layer_gap = max(1, (l_in - l_out) + 1)
+                base_bend = max(24, int(0.15 * draw_w / layer_gap))
+                # Alternate bend direction to reduce overlap
+                sign = 1 if ((conn.in_node * 131 + conn.out_node * 197) % 2 == 0) else -1
+                bend = sign * base_bend
+                draw_quadratic_curve(surface, color, p1, p2, bend, width_px)
+            else:
+                # Forward edge: straight line
+                pygame.draw.line(surface, color, p1, p2, width_px)
 
         # Draw nodes on top
         for nid, node in self.genome.nodes.items():

@@ -6,6 +6,7 @@ from NEAT import Network
 from pygame.font import Font
 import copy
 import time
+import pygame
 
 def interpolate(percent, min_value, max_value):
     return min_value + percent * (max_value - min_value)
@@ -97,6 +98,20 @@ class Environment:
             for y in range(0, self.grid_size, self.cell_size):
                 a = self.grid[y//self.cell_size][x//self.cell_size]
                 a.render()
+
+        # If an agent is selected, highlight all visited cells it has traveled
+        try:
+            if self.selected and type(self.selected) == Agent and getattr(self.selected, 'visited', None):
+                cell = self.cell_size
+                overlay = pygame.Surface((cell, cell), pygame.SRCALPHA)
+                # warm yellow translucent fill
+                overlay.fill((255, 230, 120, 80))
+                for (vx, vy) in self.selected.visited:
+                    # bounds-safe blit; out-of-range entries are ignored
+                    if 0 <= vx < (self.grid_size // cell) and 0 <= vy < (self.grid_size // cell):
+                        self.screen.blit(overlay, (vx * cell, vy * cell))
+        except Exception:
+            pass
                 
                 # Render the x, y coordinates on the cell
         # Right-side UI layout: Stats (if selected), Population chart, Brain (if selected)
@@ -518,6 +533,9 @@ class Agent:
         self.age = 0
         self.traveled = 0
         self.generation = 0
+        # Track all visited grid cells for highlighting when selected
+        self.visited = set()
+        self.visited.add((self.x, self.y))
   
     def update(self):
         self.age+=1
@@ -589,8 +607,11 @@ class Agent:
             newY = (self.y + dy)%len(self.env.grid[self.y])
             self.env.grid[newX][newY] = self
             self.env.grid[self.x][self.y] = df
+            # record current and next cell as visited
+            self.visited.add((self.x, self.y))
             self.x= newX
             self.y= newY
+            self.visited.add((self.x, self.y))
             self.traveled+=1
         
     def reproduce(self):
