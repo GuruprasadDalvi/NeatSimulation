@@ -2,6 +2,8 @@ import time
 from copy import deepcopy
 import pygame
 import random
+import csv
+import os
 
 from GeneticModels import Environment, Agent, Food
 
@@ -47,15 +49,41 @@ while running:
     pygame.display.flip()
     # time.sleep(1)
     # print("=========================")
-    pygame.display.set_caption(f"Simulation Population: {len(env.agents)} Food: {len(env.foods)} Max Age: {env.maxAge} Env Age: {env.age}")
-    if(len(env.agents)<10):
+    # Elapsed time since start, formatted to seconds like age indicator
+    elapsed = getattr(env, 'elapsed_seconds', 0.0)
+    pygame.display.set_caption(
+        f"Simulation Population: {len(env.agents)} "
+        f"Food: {len(env.foods)} "
+        f"Max Age: {env.maxAge} "
+        f"Env Age: {env.age} "
+        f"Elapsed: {int(elapsed)}s"
+    )
+    # Log population to CSV every 25 steps
+    if env.age > 0 and env.age % 10 == 0:
+        log_path = "population_log.csv"
+        file_exists = os.path.exists(log_path)
+        with open(log_path, mode="a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["age", "population"]) 
+            writer.writerow([env.age, len(env.agents)])
+    if(len(env.agents)<50):
         for i in range(env.grid_size//CELL_SIZE -1):
             for j in range(env.grid_size//CELL_SIZE -1):
-                if (i)%2==0 and (j)%2==0:
-                    a = Agent(env, screen)
-                    a.x=i
-                    a.y=i
-                    env.add_agent(a)
+                if len(env.agents)<1000 :
+                    if random.random()<0.5:
+                
+                        a = Agent(env, screen)
+                        a.x=random.randint(0,env.grid_size//CELL_SIZE -1)
+                        a.y=random.randint(0,env.grid_size//CELL_SIZE -1)
+                        env.add_agent(a)
+                    else:
+                        r = random.randint(0, len(env.agents)-1)
+                        a = env.agents[r]
+                        clone = a.clone()
+                        clone.x=random.randint(0,env.grid_size//CELL_SIZE -1)
+                        clone.y=random.randint(0,env.grid_size//CELL_SIZE -1)
+                        env.add_agent(clone)
         
 
 pygame.quit()

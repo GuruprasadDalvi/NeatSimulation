@@ -2,9 +2,10 @@ import random
 import base64
 from pygame import draw, Rect
 from pygame import gfxdraw
-from nNet import nNetwork
+from NEAT import Network
 from pygame.font import Font
 import copy
+import time
 
 def interpolate(percent, min_value, max_value):
     return min_value + percent * (max_value - min_value)
@@ -23,7 +24,8 @@ class Environment:
                 d = DefaultObj(self, j,i)
                 row.append(d)
             self.grid.append(row)
-        # self.sound_grid = [[0]*(wid//cell_size)]*(hei//cell_size)
+        # Sound grid (communication field), separate from objects grid
+        self.sound_grid = [[0.0 for _ in range((self.grid_size//cell_size))] for _ in range((self.grid_size//cell_size))]
         # self.food_grid = [[0]*(wid//cell_size)]*(hei//cell_size)
         self.border_color = [10,10,10]
         self.temp = 0
@@ -35,6 +37,7 @@ class Environment:
         self.increasing = True
         self.maxAge = 0
         self.age = 0
+        self.start_time = time.time()
         # Simulation control
         self.paused = False
         self._request_step = False
@@ -42,18 +45,18 @@ class Environment:
     def select(self,x,y):
         x=x//self.cell_size
         y=y//self.cell_size
-        if type(self.grid[x][y])==Agent:
+        if x>=0 and x<len(self.grid) and y>=0 and y<len(self.grid[0]) and type(self.grid[x][y])==Agent:
             self.selected = self.grid[x][y]
         
-        # print(f"SelectedL {self.grid[x][y].objId}  {self.selected}")
-        # print(f"North To selected: {self.getNorthCellId(x,y)}")
-        # print(f"East To selected: {self.getEastCellId(x,y)}")
-        # print(f"South To selected: {self.getSouthCellId(x,y)}")
-        # print(f"West To selected: {self.getWestCellId(x,y)}")
-        # print(f"NorthEast To selected: {self.getNorthEastCellId(x,y)}")
-        # print(f"SouthEast To selected: {self.getSouthEastCellId(x,y)}")
-        # print(f"SouthWest To selected: {self.getSouthWestCellId(x,y)}")
-        # print(f"NorthWest To selected: {self.getNorthWestCellId(x,y)}")
+        print(f"SelectedL {self.grid[x][y].objId}  {self.selected}")
+        print(f"North To selected: {self.getNorthCellId(x,y)}")
+        print(f"East To selected: {self.getEastCellId(x,y)}")
+        print(f"South To selected: {self.getSouthCellId(x,y)}")
+        print(f"West To selected: {self.getWestCellId(x,y)}")
+        print(f"NorthEast To selected: {self.getNorthEastCellId(x,y)}")
+        print(f"SouthEast To selected: {self.getSouthEastCellId(x,y)}")
+        print(f"SouthWest To selected: {self.getSouthWestCellId(x,y)}")
+        print(f"NorthWest To selected: {self.getNorthWestCellId(x,y)}")
         
     def render(self):
         # Update agents only if running or a single step is requested
@@ -66,6 +69,12 @@ class Environment:
             self.age+=1
             # clear step request after processing one tick
             self._request_step = False
+        # update elapsed real time (seconds) only while running
+        if not self.paused:
+            try:
+                self.elapsed_seconds = max(0.0, time.time() - self.start_time)
+            except Exception:
+                self.elapsed_seconds = 0.0
         for x in range(0, self.grid_size, self.cell_size):
             for y in range(0, self.grid_size, self.cell_size):
                 a = self.grid[y//self.cell_size][x//self.cell_size]
@@ -86,6 +95,7 @@ class Environment:
 
                 texts = [
                     f"Attack:    {a.attacked} ",
+                    f"Consumed:  {a.consumed}",
                     f"Age:       {round(a.age,4)}",
                     f"Children:  {round(a.child,4)}",
                     f"Energy:    {round(a.energy,4)}",
@@ -126,6 +136,18 @@ class Environment:
                 f = Food(self, self.screen)
                 self.add_food(f)
 
+        # Decay sound field towards 0 each tick
+        decay = 0.9
+        threshold = 1e-3
+        sg = self.sound_grid
+        for i in range(len(sg)):
+            row = sg[i]
+            for j in range(len(row)):
+                v = row[j] * decay
+                if -threshold < v < threshold:
+                    v = 0.0
+                row[j] = v
+        
     def toggle_pause(self):
         self.paused = not self.paused
 
@@ -202,11 +224,40 @@ class Environment:
         if type(self.grid[agent.x][agent.y]) == DefaultObj:
             self.agents.append(agent)
             self.grid[agent.x][agent.y]= agent
+        else:
+            return 
 
     def add_food(self, food):
         if type(self.grid[food.x][food.y]) == DefaultObj:
             self.grid[food.x][food.y]= food
             self.foods.append(food)
+
+    # ===== Sound helpers =====
+    def add_sound(self, x, y, value):
+        try:
+            self.sound_grid[x][y] = self.sound_grid[x][y] + float(value)
+        except Exception:
+            # out of bounds are ignored
+            pass
+
+    def get_sound_9(self, x, y):
+        # Order: N, NE, E, SE, S, SW, W, NW, C
+        out = []
+        def get(xx, yy):
+            try:
+                return float(self.sound_grid[xx][yy])
+            except Exception:
+                return 0.0
+        out.append(get(x, y-1))   # N
+        out.append(get(x+1, y-1)) # NE
+        out.append(get(x+1, y))   # E
+        out.append(get(x+1, y+1)) # SE
+        out.append(get(x, y+1))   # S
+        out.append(get(x-1, y+1)) # SW
+        out.append(get(x-1, y))   # W
+        out.append(get(x-1, y-1)) # NW
+        out.append(get(x, y))     # C
+        return out
 
     def _draw_brain(self, agent: 'Agent'):
         # Panel bounds on the right side
@@ -225,6 +276,13 @@ class Environment:
 
         # Validate brain
         brain = agent.brain
+        # Prefer NEAT.Network built-in renderer if available
+        if hasattr(brain, 'render'):
+            try:
+                brain.render(self.screen, (panel_left, panel_top), (panel_width, panel_height))
+                return
+            except Exception:
+                pass
         layers = getattr(brain, 'layers', None)
         weights = getattr(brain, 'weights', None)
         activations = getattr(brain, 'activisions', None)
@@ -348,17 +406,20 @@ class Agent:
         self.screen = screen
         self.color = [random.randint(0,155),random.randint(0,155),random.randint(0,155)]
         self.font = Font(None, 16)
-        self.brain = nNetwork([12,10,6],activeFun="tanh")
+        # Inputs: 12 existing + 9 sound inputs = 21
+        # Outputs: 6 existing + 9 sound outputs = 15
+        self.brain = Network(21, 15)
         self.energy = 2000
         self.maxenergy = 5000
         self.attacked = 0
+        self.consumed = 0
         self.child = 0
         self.age = 0
         self.traveled = 0
   
     def update(self):
         self.age+=1
-        preds = self.brain.feedforward([
+        base_inputs = [
             self.env.getNorthCellId(self.x,self.y),
             self.env.getNorthEastCellId(self.x,self.y),
             self.env.getEastCellId(self.x,self.y),
@@ -371,7 +432,9 @@ class Agent:
             self.env.temp,
             self.x/len(self.env.grid[0]),
             self.y/len(self.env.grid[0]),
-            ])
+        ]
+        sound_inputs = self.env.get_sound_9(self.x, self.y)
+        preds = self.brain.activate(base_inputs + sound_inputs)
         
         # Attack
         if float(preds[2])>0:
@@ -379,14 +442,13 @@ class Agent:
         # Reproduce 
         if(self.energy>2000) and preds[3]>0:
             self.reproduce()
-            self.energy-=100
+            self.energy-=200
         
         # Eat
         if(float(preds[4]))>0:
             self.eat()
             if self.energy>self.maxenergy:
                 self.energy = self.maxenergy
-            
         
         if(self.energy<0):
             self.env.grid[self.x][self.y] = DefaultObj(self.env,self.x, self.y)
@@ -402,11 +464,23 @@ class Agent:
         else:
             self.energy-=1*(self.env.temp/10)
             self.move(round(float(preds[0])),round(float(preds[1])))
+
+        # Emit sound to 9 surrounding cells (N, NE, E, SE, S, SW, W, NW, C)
+        try:
+            sound_ops = [preds[i] for i in range(6, 15)]
+            offsets = [(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1),(0,0)]
+            for (dx, dy), val in zip(offsets, sound_ops):
+                self.env.add_sound(self.x+dx, self.y+dy, float(val))
+        except Exception:
+            pass
         
         
         # pass
 
     def move(self,dx,dy):
+        if dx==0 and dy==0:
+            self.energy-=15
+            return
         if self.env.isCellEmpty(self.x+dx,self.y+dy):
             df = DefaultObj(self.env, self.x,self.y)
             newX = (self.x + dx)%len(self.env.grid[self.x])
@@ -423,11 +497,20 @@ class Agent:
         a = Agent(self.env,self.screen)
         a.x = newX
         a.y = newY
-        a.brain = copy.deepcopy(self.brain)
+        a.brain = self.brain.clone()
         a.brain.mutate()
         a.color = self.color
         self.env.add_agent(a)
         self.child+=1
+        
+    def clone(self):
+        a = Agent(self.env,self.screen)
+        a.x = self.x
+        a.y = self.y
+        a.color = self.color
+        a.brain = self.brain.clone()
+        a.brain.mutate()
+        return a
     
     def attack(self):
             self.energy-=80
@@ -522,12 +605,14 @@ class Agent:
                 self.energy+=self.env.grid[self.x+1][self.y].energy
                 self.env.foods.remove(self.env.grid[self.x+1][self.y])
                 self.env.grid[self.x+1][self.y] = DefaultObj(self.env,self.x+1, self.y)
+                self.consumed+=1
                 return
             # North
             if type(self.env.grid[self.x][self.y-1])==Food:
                 self.energy+=self.env.grid[self.x][self.y-1].energy
                 self.env.foods.remove(self.env.grid[self.x][self.y-1])
                 self.env.grid[self.x][self.y-1] = DefaultObj(self.env,self.x, self.y-1)
+                self.consumed+=1
                 return
             
             # West
@@ -535,6 +620,7 @@ class Agent:
                 self.energy+=self.env.grid[self.x-1][self.y].energy
                 self.env.foods.remove(self.env.grid[self.x-1][self.y])
                 self.env.grid[self.x-1][self.y] = DefaultObj(self.env,self.x-1, self.y)
+                self.consumed+=1
                 return
             
             # South
@@ -542,6 +628,7 @@ class Agent:
                 self.energy+=self.env.grid[self.x][self.y+1].energy
                 self.env.foods.remove(self.env.grid[self.x][self.y+1])
                 self.env.grid[self.x][self.y+1] = DefaultObj(self.env,self.x, self.y+1)
+                self.consumed+=1
                 return
         except:
             pass

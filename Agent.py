@@ -1,4 +1,4 @@
-from nNet import nNetwork
+from NEAT import Network
 from random import randint,uniform
 from pygame import draw
 from pygame import gfxdraw
@@ -32,7 +32,7 @@ class Food:
 
 class Agent:
     def __init__(self,screen,env) -> None:
-        self.brain = nNetwork([10,10,6],activeFun="tanh")
+        self.brain = Network(10, 6)
         self.x = randint(0,800)
         self.y = randint(0,800)
         self.color = [randint(50,255),50,randint(50,255)]
@@ -59,7 +59,11 @@ class Agent:
             self.x = 800
         if(self.y<0):
             self.y = 800
-        self.energy-=1
+        if dx*acc==0 and dy*acc==0:
+            self.energy-=1.5
+        else:
+            self.energy-=.9
+        
     
     def reproduce(self):
         pass
