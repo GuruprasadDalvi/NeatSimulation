@@ -38,6 +38,10 @@ class Environment:
         self.maxAge = 0
         self.age = 0
         self.start_time = time.time()
+        # Keep recent population counts for on-screen chart
+        self.population_history = []
+        # Keep recent available food counts for on-screen chart
+        self.food_history = []
         # Simulation control
         self.paused = False
         self._request_step = False
@@ -75,43 +79,65 @@ class Environment:
                 self.elapsed_seconds = max(0.0, time.time() - self.start_time)
             except Exception:
                 self.elapsed_seconds = 0.0
+        # track population history (cap to recent N points)
+        try:
+            self.population_history.append(len(self.agents))
+            if len(self.population_history) > 600:
+                self.population_history = self.population_history[-600:]
+        except Exception:
+            pass
+        # track food history (cap to recent N points)
+        try:
+            self.food_history.append(len(self.foods))
+            if len(self.food_history) > 600:
+                self.food_history = self.food_history[-600:]
+        except Exception:
+            pass
         for x in range(0, self.grid_size, self.cell_size):
             for y in range(0, self.grid_size, self.cell_size):
                 a = self.grid[y//self.cell_size][x//self.cell_size]
                 a.render()
                 
                 # Render the x, y coordinates on the cell
-        if self.selected:
+        # Right-side UI layout: Stats (if selected), Population chart, Brain (if selected)
+        panel_left = self.grid_size + 10
+        panel_top = 10
+        panel_width = max(0, self.wid - panel_left - 10)
+        y_cursor = panel_top
+        # Stats panel if an agent is selected
+        if self.selected and type(self.selected)==Agent:
             a = self.selected
-            if a and type(a)==Agent:
-                # Stats panel background
-                panel_left = self.grid_size + 10
-                panel_top = 10
-                panel_width = max(0, self.wid - panel_left - 10)
-                panel_height = 200
-                if panel_width > 10:
-                    stats_rect = Rect(panel_left, panel_top, panel_width, panel_height)
-                    draw.rect(self.screen, [25,25,40], stats_rect, border_radius=6)
+            panel_height = 200
+            if panel_width > 10:
+                stats_rect = Rect(panel_left, y_cursor, panel_width, panel_height)
+                draw.rect(self.screen, [25,25,40], stats_rect, border_radius=6)
 
-                texts = [
-                    f"Attack:    {a.attacked} ",
-                    f"Consumed:  {a.consumed}",
-                    f"Age:       {round(a.age,4)}",
-                    f"Children:  {round(a.child,4)}",
-                    f"Energy:    {round(a.energy,4)}",
-                    f"Traveled:  {round(a.traveled,4)}",
-                    f"Generation: {a.generation}",
-                    f"X: {round(a.x)}, Y: {round(a.y)}"
-                ]
-                yPos = panel_top + 15
-                for t in texts:
-                    text = self.font.render(t, True, (255, 255, 255))
-                    text_rect = text.get_rect()
-                    text_rect.center = (int(self.wid*.9), yPos)
-                    self.screen.blit(text, text_rect)
-                    yPos+=25
-                # Draw the selected agent's brain visualization on the right panel
-                self._draw_brain(a)
+            texts = [
+                f"Attack:    {a.attacked} ",
+                f"Consumed:  {a.consumed}",
+                f"Age:       {round(a.age,4)}",
+                f"Children:  {round(a.child,4)}",
+                f"Energy:    {round(a.energy,4)}",
+                f"Traveled:  {round(a.traveled,4)}",
+                f"Generation: {a.generation}",
+                f"X: {round(a.x)}, Y: {round(a.y)}"
+            ]
+            yPos = y_cursor + 15
+            for t in texts:
+                text = self.font.render(t, True, (255, 255, 255))
+                text_rect = text.get_rect()
+                text_rect.center = (int(self.wid*.9), yPos)
+                self.screen.blit(text, text_rect)
+                yPos+=25
+            y_cursor += panel_height + 10
+        # Population chart panel
+        pop_height = 140
+        if panel_width >= 40:
+            self._draw_population_chart(panel_left, panel_width, y_cursor, pop_height)
+            y_cursor += pop_height + 10
+        # Brain panel for selected agent
+        if self.selected and type(self.selected)==Agent:
+            self._draw_brain(self.selected, y_cursor)
         
     def isCellEmpty(self, x,y):
         try:
@@ -259,11 +285,10 @@ class Environment:
         out.append(get(x, y))     # C
         return out
 
-    def _draw_brain(self, agent: 'Agent'):
+    def _draw_brain(self, agent: 'Agent', panel_top):
         # Panel bounds on the right side
         panel_left = self.grid_size + 10
         panel_right = self.wid - 10
-        panel_top = 230
         panel_bottom = self.hei - 20
         panel_width = max(0, panel_right - panel_left)
         panel_height = max(0, panel_bottom - panel_top)
@@ -373,6 +398,82 @@ class Environment:
         title_rect = title.get_rect()
         title_rect.center = (int((panel_left + panel_right)/2), panel_top - 12)
         self.screen.blit(title, title_rect)
+
+    def _draw_population_chart(self, left, chart_w, top, chart_h):
+        hist = self.population_history
+        food_hist = self.food_history
+        if (not hist and not food_hist) or chart_w <= 0 or chart_h <= 0:
+            return
+        bg_rect = Rect(left, top, chart_w, chart_h)
+        # Background panel
+        draw.rect(self.screen, [25,25,40], bg_rect, border_radius=6)
+        # Title with current population
+        try:
+            last_pop = hist[-1] if hist else 0
+            last_food = food_hist[-1] if food_hist else 0
+            title = self.font.render(f"Population {last_pop}  |  Food {last_food}", True, (255,255,255))
+            self.screen.blit(title, (left + 10, top + 8))
+        except Exception:
+            pass
+        # Plot area
+        pad_left, pad_right, pad_top, pad_bottom = 8, 8, 26, 8
+        plot_left = left + pad_left
+        plot_top = top + pad_top
+        plot_w = max(10, chart_w - pad_left - pad_right)
+        plot_h = max(10, chart_h - pad_top - pad_bottom)
+        draw.rect(self.screen, (35,35,55), Rect(plot_left, plot_top, plot_w, plot_h), 1)
+        # Choose visible windows
+        window_p = hist[-min(len(hist), 300):] if hist else []
+        window_f = food_hist[-min(len(food_hist), 300):] if food_hist else []
+        if len(window_p) < 2 and len(window_f) < 2:
+            return
+        try:
+            values = []
+            if window_p:
+                values.extend(window_p)
+            if window_f:
+                values.extend(window_f)
+            min_v = min(values)
+            max_v = max(values)
+            if max_v == min_v:
+                max_v = min_v + 1
+            # Build polyline for population (light blue)
+            if window_p and len(window_p) >= 2:
+                n_p = len(window_p)
+                pts_p = []
+                for i, val in enumerate(window_p):
+                    x = plot_left + int(i * (plot_w - 1) / (n_p - 1))
+                    norm = (val - min_v) / (max_v - min_v)
+                    y = plot_top + int((1.0 - norm) * (plot_h - 1))
+                    pts_p.append((x, y))
+                if len(pts_p) >= 2:
+                    draw.lines(self.screen, (120, 200, 255), False, pts_p, 2)
+            # Build polyline for food (green)
+            if window_f and len(window_f) >= 2:
+                n_f = len(window_f)
+                pts_f = []
+                for i, val in enumerate(window_f):
+                    x = plot_left + int(i * (plot_w - 1) / (n_f - 1))
+                    norm = (val - min_v) / (max_v - min_v)
+                    y = plot_top + int((1.0 - norm) * (plot_h - 1))
+                    pts_f.append((x, y))
+                if len(pts_f) >= 2:
+                    draw.lines(self.screen, (120, 255, 120), False, pts_f, 2)
+            # Min/Max labels
+            max_txt = self.font.render(str(max_v), True, (180,180,200))
+            min_txt = self.font.render(str(min_v), True, (180,180,200))
+            self.screen.blit(max_txt, (left + chart_w - 50, plot_top - 16))
+            self.screen.blit(min_txt, (left + chart_w - 50, plot_top + plot_h - 14))
+            # Legend
+            try:
+                legend_pop = self.font.render("Pop", True, (120,200,255))
+                legend_food = self.font.render("Food", True, (120,255,120))
+                self.screen.blit(legend_pop, (left + chart_w - 110, top + 8))
+                self.screen.blit(legend_food, (left + chart_w - 60, top + 8))
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 class DefaultObj:
     def __init__(self, env: Environment,x,y) -> None:
@@ -500,7 +601,7 @@ class Agent:
         a.y = newY
         a.brain = self.brain.clone()
         a.color = self.color
-        if random.random()<0.5: 
+        if random.random()<0.95: 
             a.brain.mutate()
             # Change Color slightly
             a.color = [a.color[0] + random.randint(-10,10),a.color[1] + random.randint(-10,10),a.color[2] + random.randint(-10,10)]
@@ -514,7 +615,7 @@ class Agent:
         a.y = self.y
         a.color = self.color
         a.brain = self.brain.clone()
-        if random.random()<0.5:
+        if random.random()<0.75:
             a.brain.mutate()
             # Change Color slightly
             a.color = [a.color[0] + random.randint(-10,10),a.color[1] + random.randint(-10,10),a.color[2] + random.randint(-10,10)]

@@ -9,7 +9,8 @@ from GeneticModels import Environment, Agent, Food
 
 # Initialize Pygame
 pygame.init()
-WIDTH,HEIGH = 1000,800
+# Widen the window to give the right-side panels more room without changing grid size
+WIDTH,HEIGH = 1400,800
 CELL_SIZE = 16
 screen = pygame.display.set_mode((WIDTH,HEIGH))
 
@@ -56,10 +57,13 @@ while running:
     # print("=========================")
     # Elapsed time since start, formatted to seconds like age indicator
     elapsed = getattr(env, 'elapsed_seconds', 0.0)
+    # Average age of agents
+    avg_age = int(sum(a.age for a in env.agents) / len(env.agents)) if env.agents else 0
     pygame.display.set_caption(
         f"Simulation Population: {len(env.agents)} "
         f"Food: {len(env.foods)} "
         f"Max Age: {env.maxAge} "
+        f"Avg Age: {avg_age} "
         f"Env Age: {env.age} "
         f"Elapsed: {int(elapsed)}s"
     )

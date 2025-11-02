@@ -94,7 +94,6 @@ class Network:
         # fully connect inputs and bias to outputs with random weights
         for in_id in [bias_id] + self.input_ids:
             for out_id in self.output_ids:
-                if random.random() < 0.25:
                     inn = self.innovation_tracker.get_connection_innovation(in_id, out_id)
                     w = random.uniform(-1.0, 1.0)
                     self.genome.add_connection(ConnectionGene(in_id, out_id, w, True, inn))
@@ -255,12 +254,16 @@ class Network:
 
     # ---------- mutation operations ----------
     def mutate(self):
-        if random.random() < 0.1:
+        if random.random() < 0.9:
             self.mutate_add_node()
-        if random.random() < 0.1:
+        if random.random() < 0.8:
             self.mutate_add_connection()
-        if random.random() < 0.1:
+        if random.random() < 0.7:
             self.mutate_weights()
+        if random.random() < 0.6:
+            count = random.randint(1, 10)
+            for _ in range(count):
+                self.mutate_delete_connection()
             
     
     def mutate_weights(self, perturb_chance: float = 0.9, sigma: float = 0.5) -> None:
@@ -325,6 +328,17 @@ class Network:
             return True
         return False
 
+    def mutate_delete_connection(self) -> bool:
+        
+        # Delete random connection
+        enabled_conns = [c for c in self.genome.connections.values() if c.enabled]
+        if not enabled_conns:
+            return False
+        conn = random.choice(enabled_conns)
+        conn.enabled = False
+        self._invalidate_caches()
+        return True
+    
     def mutate_add_node(self) -> bool:
         enabled_conns = [c for c in self.genome.connections.values() if c.enabled]
         if not enabled_conns:
