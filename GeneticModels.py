@@ -48,7 +48,7 @@ class Environment:
         if x>=0 and x<len(self.grid) and y>=0 and y<len(self.grid[0]) and type(self.grid[x][y])==Agent:
             self.selected = self.grid[x][y]
         
-        print(f"SelectedL {self.grid[x][y].objId}  {self.selected}")
+        print(f"Selected {self.grid[x][y].objId}  {self.selected}")
         print(f"North To selected: {self.getNorthCellId(x,y)}")
         print(f"East To selected: {self.getEastCellId(x,y)}")
         print(f"South To selected: {self.getSouthCellId(x,y)}")
@@ -100,8 +100,8 @@ class Environment:
                     f"Children:  {round(a.child,4)}",
                     f"Energy:    {round(a.energy,4)}",
                     f"Traveled:  {round(a.traveled,4)}",
-                    f"X:  {round(a.x)}",
-                    f"Y:  {round(a.y)}",
+                    f"Generation: {a.generation}"
+                    f"X: {round(a.x)}, Y: {round(a.y)}"
                 ]
                 yPos = panel_top + 15
                 for t in texts:
@@ -416,6 +416,7 @@ class Agent:
         self.child = 0
         self.age = 0
         self.traveled = 0
+        self.generation = 0
   
     def update(self):
         self.age+=1
@@ -500,6 +501,7 @@ class Agent:
         a.brain = self.brain.clone()
         a.brain.mutate()
         a.color = self.color
+        a.generation = self.generation+1
         self.env.add_agent(a)
         self.child+=1
         
