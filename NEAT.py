@@ -123,6 +123,12 @@ class Network:
         self._idx_inputs: Optional[List[int]] = None
         self._idx_outputs: Optional[List[int]] = None
 
+        # Recurrent evaluation settings
+        # When True, mutations may create cycles and evaluation runs for multiple steps
+        self.recurrent = True
+        # Number of recurrent update steps per activate() call
+        self.activation_steps = 3
+
     # ---------- basic helpers ----------
     def _allocate_node_id(self) -> int:
         nid = self.next_node_id
@@ -150,6 +156,9 @@ class Network:
         child._cached_topo = list(self._cached_topo) if self._cached_topo is not None else None
         # do not copy torch cache; rebuild lazily in child when needed
         child._torch_cache_built = False
+        # copy recurrent settings
+        child.recurrent = self.recurrent
+        child.activation_steps = self.activation_steps
         return child
 
     # ---------- evaluation ----------
@@ -178,9 +187,6 @@ class Network:
         if len(inputs) != self.input_size:
             raise ValueError("inputs length must match input_size")
 
-        order = self._get_topological_order()
-        values: Dict[int, float] = {}
-
         # set bias and inputs
         bias_id = None
         for nid, node in self.genome.nodes.items():
@@ -190,10 +196,6 @@ class Network:
         if bias_id is None:
             raise RuntimeError("Bias node missing")
 
-        values[bias_id] = 1.0
-        for idx, nid in enumerate(self.input_ids):
-            values[nid] = inputs[idx]
-
         # incoming adjacency by out_node
         incoming: Dict[int, List[ConnectionGene]] = {}
         for conn in self.genome.connections.values():
@@ -201,18 +203,43 @@ class Network:
                 continue
             incoming.setdefault(conn.out_node, []).append(conn)
 
-        # compute node values in topological order
-        for nid in order:
-            node = self.genome.nodes[nid]
-            if node.type in ('input', 'bias'):
-                continue
-            total = 0.0
-            for conn in incoming.get(nid, []):
-                src_val = values.get(conn.in_node, 0.0)
-                total += conn.weight * src_val
-            values[nid] = self._activation_tanh(total)
-
-        return [values.get(oid, 0.0) for oid in self.output_ids]
+        if self.recurrent:
+            # Recurrent update: iterate activation_steps times, clamping inputs and bias each step
+            values: Dict[int, float] = {nid: 0.0 for nid in self.genome.nodes.keys()}
+            for _ in range(self.activation_steps):
+                # clamp bias and inputs
+                values[bias_id] = 1.0
+                for idx, nid in enumerate(self.input_ids):
+                    values[nid] = inputs[idx]
+                # compute new activations for non-input/bias nodes based on previous values
+                new_values = dict(values)
+                for nid, node in self.genome.nodes.items():
+                    if node.type in ('input', 'bias'):
+                        continue
+                    total = 0.0
+                    for conn in incoming.get(nid, []):
+                        src_val = values.get(conn.in_node, 0.0)
+                        total += conn.weight * src_val
+                    new_values[nid] = self._activation_tanh(total)
+                values = new_values
+            return [values.get(oid, 0.0) for oid in self.output_ids]
+        else:
+            # Acyclic fast path using topological order
+            order = self._get_topological_order()
+            values: Dict[int, float] = {}
+            values[bias_id] = 1.0
+            for idx, nid in enumerate(self.input_ids):
+                values[nid] = inputs[idx]
+            for nid in order:
+                node = self.genome.nodes[nid]
+                if node.type in ('input', 'bias'):
+                    continue
+                total = 0.0
+                for conn in incoming.get(nid, []):
+                    src_val = values.get(conn.in_node, 0.0)
+                    total += conn.weight * src_val
+                values[nid] = self._activation_tanh(total)
+            return [values.get(oid, 0.0) for oid in self.output_ids]
 
     def _activation_tanh(self, x: float) -> float:
         return math.tanh(x)
@@ -300,13 +327,15 @@ class Network:
             a_type = self.genome.nodes[a].type
             b_type = self.genome.nodes[b].type
 
-            # enforce direction: no edges into inputs/bias; no edges out of outputs
+            # enforce direction: no edges into inputs/bias
             if b_type in ('input', 'bias'):
                 continue
-            if a_type == 'output':
-                continue
-            if a == b:
-                continue
+            # In non-recurrent mode, disallow edges out of outputs and self-loops
+            if not self.recurrent:
+                if a_type == 'output':
+                    continue
+                if a == b:
+                    continue
 
             # avoid duplicate
             exists = False
@@ -317,8 +346,8 @@ class Network:
             if exists:
                 continue
 
-            # avoid cycles
-            if self._creates_cycle(a, b):
+            # avoid cycles only when not in recurrent mode
+            if not self.recurrent and self._creates_cycle(a, b):
                 continue
 
             inn = self.innovation_tracker.get_connection_innovation(a, b)
@@ -403,6 +432,9 @@ class Network:
 
         child.input_ids = list(parent1.input_ids)
         child.output_ids = list(parent1.output_ids)
+        # inherit recurrent settings from the more-fit parent
+        child.recurrent = parent1.recurrent
+        child.activation_steps = parent1.activation_steps
         child._invalidate_caches()
         return child
 
@@ -418,7 +450,8 @@ class Network:
 
         order = self._get_topological_order()
 
-        # Compute predecessors and layer assignment (similar to render)
+        # For recurrent mode we still build indices and adjacency, but layer info is unused
+        # Compute predecessors and layer assignment (used only in non-recurrent GPU path)
         predecessors: Dict[int, List[int]] = {}
         for c in self.genome.connections.values():
             if not c.enabled:
@@ -481,15 +514,15 @@ class Network:
             # No connections -> zero sparse matrix
             A = torch.sparse_coo_tensor(torch.zeros((2, 0), dtype=torch.long), torch.zeros((0,), dtype=torch.float32), size=(num_nodes, num_nodes)).to(self.device)
 
-        # Group nodes by layer, excluding inputs and bias (layer 0)
+        # Group nodes by layer (used only if non-recurrent GPU path)
         layers: Dict[int, List[int]] = {}
         for nid in order:
             layers.setdefault(layer_of[nid], []).append(id_to_idx[nid])
-        # We will iterate layers > 0 only
         ordered_layers: List[List[int]] = []
-        for ly in range(1, max_layer + 1):
-            if ly in layers:
-                ordered_layers.append(layers[ly])
+        if not self.recurrent:
+            for ly in range(1, max_layer + 1):
+                if ly in layers:
+                    ordered_layers.append(layers[ly])
 
         self._torch_A = A
         self._torch_layers = ordered_layers
@@ -535,16 +568,24 @@ class Network:
         values[:, self._idx_bias] = 1.0  # type: ignore
         values[:, self._idx_inputs] = x  # type: ignore
 
-        # Layer-wise propagation: at each step compute y = A @ values^T, then update only current layer rows
-        if self._torch_layers:
-            for layer_nodes in self._torch_layers:
-                # y: (N, B)
-                y = torch.sparse.mm(self._torch_A, values.transpose(0, 1))  # type: ignore
-                # pre-activation for this layer: (B, L)
-                layer_idx = torch.tensor(layer_nodes, dtype=torch.long, device=self.device)
-                preact = y.index_select(0, layer_idx).transpose(0, 1)
-                activated = torch.tanh(preact)
-                values.index_copy_(1, layer_idx, activated)
+        if self.recurrent:
+            # Recurrent iterative updates with clamped inputs and bias
+            for _ in range(self.activation_steps):
+                y = torch.sparse.mm(self._torch_A, values.transpose(0, 1))  # (N, B)
+                preact = y.transpose(0, 1)  # (B, N)
+                values = torch.tanh(preact)
+                # clamp bias and inputs each step
+                values[:, self._idx_bias] = 1.0  # type: ignore
+                values[:, self._idx_inputs] = x  # type: ignore
+        else:
+            # Layer-wise propagation for acyclic networks
+            if self._torch_layers:
+                for layer_nodes in self._torch_layers:
+                    y = torch.sparse.mm(self._torch_A, values.transpose(0, 1))  # type: ignore
+                    layer_idx = torch.tensor(layer_nodes, dtype=torch.long, device=self.device)
+                    preact = y.index_select(0, layer_idx).transpose(0, 1)
+                    activated = torch.tanh(preact)
+                    values.index_copy_(1, layer_idx, activated)
 
         # Gather outputs -> (B, O)
         out_idx = torch.tensor(self._idx_outputs, dtype=torch.long, device=self.device)  # type: ignore
