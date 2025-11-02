@@ -41,7 +41,13 @@ Place images in an `images/` folder at the project root and reference them from 
 
 ![Grid Overview](images/grid_overview.png)
 
-![Agent Brain](images/agent_network.png)
+#### Agent Brains (Diverse Examples)
+
+Place multiple brain diagrams in `images/brains/` and reference them here:
+
+- ![Dense Brain](images/brains/1.png)
+- ![Recurrent Brain](images/brains/2.png)
+- ![Sparse Brain](images/brains/3.png)
 
 <details>
 <summary>Generation Performance</summary>
@@ -55,8 +61,9 @@ Simulation Run:
 
 Recommended image naming:
 - `grid_overview.png`: A high-level screenshot of the grid and agents
-- `agent_network.png`: Visualization of a representative agent's neural network
+- `brains/brain_dense.png`, `brains/brain_recurrent.png`, `brains/brain_sparse.png`: Visualizations of diverse agent neural networks
 - `fitness_over_time.png`: Plot of fitness or population metrics over generations
+- `simulation_run.png`: A screenshot of the simulation in action
 
 Tip: If you generate plots during runs, save them into `images/` so the README links work.
 
