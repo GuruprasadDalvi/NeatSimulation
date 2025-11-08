@@ -48,9 +48,8 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            x,y = pygame.mouse.get_pos()
-            env.select(x,y)
+        # Forward all input events to environment (selection, sliders, etc.)
+        env.handle_event(event)
         
     env.update()
     

@@ -55,6 +55,16 @@ class Environment:
         # Simulation control
         self.paused = False
         self._request_step = False
+		# Fitness weight UI state
+        self.fitness_weight_names = [
+			"Age", "Traveled", "Consumed", "Children",
+			"Attacks", "Predator Hits Recv", "Predator Hits", "Generation"
+		]
+		# initialize equal weights that sum to 1
+        eq = 1.0 / 8.0
+        self.fitness_weights = [eq for _ in range(8)]
+        self._active_weight_slider = None  # index while dragging, or None
+        self._weight_slider_rects = []  # updated during render for hit-testing
         
         #CSV file for max age
         with open("max_fitness.csv", "w") as f:
@@ -155,7 +165,11 @@ class Environment:
         panel_top = 10
         panel_width = max(0, self.wid - panel_left - 10)
         y_cursor = panel_top
-        # Stats panel if an agent is selected
+        # Fitness Weights panel
+        if panel_width > 10:
+            weights_panel_h = self._render_fitness_weights_panel(panel_left, panel_width, y_cursor)
+            y_cursor += weights_panel_h + 10
+		# Stats panel if an agent is selected
         if self.selected and type(self.selected)==Agent:
             a = self.selected
             panel_height = 200
@@ -557,6 +571,141 @@ class Environment:
         except Exception:
             pass
 
+    def _render_fitness_weights_panel(self, left, panel_w, top):
+        # Layout constants
+        padding = 10
+        title_h = 22
+        row_h = 26
+        label_w = 150
+        track_h = 8
+        knob_r = 6
+        n = len(self.fitness_weight_names)
+        panel_h = title_h + padding + n * row_h + padding
+        # Background
+        bg_rect = Rect(left, top, panel_w, panel_h)
+        draw.rect(self.screen, [25,25,40], bg_rect, border_radius=6)
+        # Title and sum
+        try:
+            title = self.font.render("Fitness Weights", True, (255,255,255))
+            self.screen.blit(title, (left + padding, top + 4))
+            total = sum(self.fitness_weights) if self.fitness_weights else 0.0
+            col = (120,255,120) if abs(total - 1.0) < 1e-3 else (255,180,120)
+            sum_txt = self.font.render(f"Sum: {total:.2f}", True, col)
+            self.screen.blit(sum_txt, (left + panel_w - padding - 80, top + 4))
+        except Exception:
+            pass
+        # Sliders
+        slider_left = left + padding + label_w + 10
+        slider_w = max(60, panel_w - (slider_left - left) - padding - 40)
+        self._weight_slider_rects = []
+        for i, name in enumerate(self.fitness_weight_names):
+            y = top + title_h + padding + i * row_h
+            # Label
+            try:
+                label = self.font.render(name, True, (220,220,240))
+                self.screen.blit(label, (left + padding, y - 2))
+            except Exception:
+                pass
+            # Track
+            track_rect = Rect(slider_left, y + (row_h - track_h)//2, slider_w, track_h)
+            draw.rect(self.screen, (50,60,80), track_rect, border_radius=3)
+            # Knob at value
+            val = 0.0
+            try:
+                val = max(0.0, min(1.0, float(self.fitness_weights[i])))
+            except Exception:
+                val = 0.0
+            kx = int(track_rect.left + val * track_rect.width)
+            ky = track_rect.centery
+            try:
+                gfxdraw.filled_circle(self.screen, kx, ky, knob_r, (180,200,255))
+                gfxdraw.aacircle(self.screen, kx, ky, knob_r, (235,235,245))
+            except Exception:
+                pass
+            # Current value text
+            try:
+                val_txt = self.font.render(f"{val:.2f}", True, (200,200,210))
+                self.screen.blit(val_txt, (track_rect.right + 8, y - 2))
+            except Exception:
+                pass
+            # Larger hit rect for easier clicking
+            hit_rect = Rect(track_rect.left - 8, y, track_rect.width + 16, row_h)
+            self._weight_slider_rects.append(hit_rect)
+        return panel_h
+
+    def _rebalance_weights(self, fixed_index):
+        # Keep the fixed index value; scale others to keep total exactly 1.0
+        try:
+            n = len(self.fitness_weights)
+            if n <= 0:
+                return
+            v_fixed = max(0.0, min(1.0, float(self.fitness_weights[fixed_index])))
+            other_sum = sum(self.fitness_weights[j] for j in range(n) if j != fixed_index)
+            target_other = max(0.0, 1.0 - v_fixed)
+            if other_sum <= 1e-9:
+                share = target_other / max(1, n - 1)
+                for j in range(n):
+                    if j == fixed_index:
+                        self.fitness_weights[j] = v_fixed
+                    else:
+                        self.fitness_weights[j] = share
+                return
+            scale = target_other / other_sum
+            for j in range(n):
+                if j == fixed_index:
+                    self.fitness_weights[j] = v_fixed
+                else:
+                    self.fitness_weights[j] = max(0.0, min(1.0, float(self.fitness_weights[j]) * scale))
+        except Exception:
+            pass
+
+    def _update_weight_from_mouse(self, index, mouse_x):
+        try:
+            if index < 0 or index >= len(self._weight_slider_rects):
+                return
+            track_rect = self._weight_slider_rects[index]
+            # deduce the inner track from hit rect: shrink margins used above
+            inner_left = track_rect.left + 8
+            inner_right = track_rect.right - 8
+            inner_w = max(1, inner_right - inner_left)
+            raw = (mouse_x - inner_left) / float(inner_w)
+            val = 0.0 if raw < 0.0 else (1.0 if raw > 1.0 else raw)
+            self.fitness_weights[index] = val
+            self._rebalance_weights(index)
+            self.recalculate_max_fitness()
+        except Exception:
+            pass
+    def recalculate_max_fitness(self):
+        self.maxFitness = 0
+        for a in self.agents:
+            if a.get_fitness()>self.maxFitness:
+                self.maxFitness = a.get_fitness()
+    def handle_event(self, event):
+        try:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                x, y = pygame.mouse.get_pos()
+                # Grid selection
+                if x < self.grid_size:
+                    self.select(x, y)
+                # Slider interaction
+                for i, r in enumerate(self._weight_slider_rects):
+                    try:
+                        if r.collidepoint(x, y):
+                            self._active_weight_slider = i
+                            self._update_weight_from_mouse(i, x)
+                            break
+                    except Exception:
+                        pass
+            elif event.type == pygame.MOUSEMOTION:
+                if self._active_weight_slider is not None:
+                    if pygame.mouse.get_pressed()[0]:
+                        x, _ = pygame.mouse.get_pos()
+                        self._update_weight_from_mouse(self._active_weight_slider, x)
+            elif event.type == pygame.MOUSEBUTTONUP:
+                self._active_weight_slider = None
+        except Exception:
+            pass
+
 class DefaultObj:
     def __init__(self, env: Environment,x,y) -> None:
         self.env = env
@@ -609,16 +758,28 @@ class Agent:
     def get_fitness(self):
         def safe_div(numerator, denominator):
             return (numerator / denominator) if denominator not in (0, None) else 0.0
-        return 0.125 * (
-            safe_div(self.age, self.env.maxAge) +
-            safe_div(self.traveled, self.env.maxTraveled) +
-            safe_div(self.consumed, self.env.maxConsumed) +
-            safe_div(self.child, self.env.maxChild) +
-            safe_div(self.attacked, self.env.maxAttacked) +
-            safe_div(self.predator_attacks_received, self.env.maxPredatorAttacksReceived) +
-            safe_div(self.predator_hits, self.env.maxPredatorHits) +
+        metrics = [
+            safe_div(self.age, self.env.maxAge),
+            safe_div(self.traveled, self.env.maxTraveled),
+            safe_div(self.consumed, self.env.maxConsumed),
+            safe_div(self.child, self.env.maxChild),
+            safe_div(self.attacked, self.env.maxAttacked),
+            safe_div(self.predator_attacks_received, self.env.maxPredatorAttacksReceived),
+            safe_div(self.predator_hits, self.env.maxPredatorHits),
             safe_div(self.generation, self.env.maxGeneration)
-        )
+        ]
+        try:
+            weights = getattr(self.env, "fitness_weights", None)
+            if not weights or len(weights) != len(metrics):
+                weights = [1.0/len(metrics) for _ in metrics]
+            total = sum(weights)
+            if total <= 1e-12:
+                total = 1.0
+                weights = [1.0/len(metrics) for _ in metrics]
+            norm_w = [w/total for w in weights]
+            return sum(m*w for m, w in zip(metrics, norm_w))
+        except Exception:
+            return sum(metrics) * (1.0 / 8.0)
     def update(self):
         self.age+=1
         base_inputs = [
