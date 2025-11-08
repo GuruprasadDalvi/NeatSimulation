@@ -65,6 +65,7 @@ class Network:
 
         self.input_size = input_layer
         self.output_size = output_layer
+        self.size= 0
 
         # gene structures
         self.genome = Genome()
@@ -83,6 +84,7 @@ class Network:
             nid = self._allocate_node_id()
             self.genome.add_node(NodeGene(nid, 'input'))
             self.input_ids.append(nid)
+            self.size += 1
 
         # create output nodes
         self.output_ids: List[int] = []
@@ -90,14 +92,15 @@ class Network:
             nid = self._allocate_node_id()
             self.genome.add_node(NodeGene(nid, 'output'))
             self.output_ids.append(nid)
-
+            self.size += 1
         # fully connect inputs and bias to outputs with random weights
         for in_id in [bias_id] + self.input_ids:
             for out_id in self.output_ids:
                     inn = self.innovation_tracker.get_connection_innovation(in_id, out_id)
                     w = random.uniform(-1.0, 1.0)
-                    self.genome.add_connection(ConnectionGene(in_id, out_id, w, True, inn))
-
+                    if random.random()<0.1:
+                        self.genome.add_connection(ConnectionGene(in_id, out_id, w, True, inn))
+                        self.size += 1
         # cache for topological order
         self._cached_topo: Optional[List[int]] = None
 
@@ -149,6 +152,7 @@ class Network:
     def clone(self) -> Network:
         child = Network(self.input_size, self.output_size, device=self.device)
         child.genome = self.genome.copy()
+        child.size = self.size
         child.innovation_tracker = self.innovation_tracker  # shared tracker reference
         child.next_node_id = self.next_node_id
         child.input_ids = list(self.input_ids)
@@ -354,21 +358,24 @@ class Network:
             w = random.uniform(-1.0, 1.0)
             self.genome.add_connection(ConnectionGene(a, b, w, True, inn))
             self._invalidate_caches()
+            self.size += 1
             return True
         return False
 
     def mutate_delete_connection(self) -> bool:
-        
         # Delete random connection
         enabled_conns = [c for c in self.genome.connections.values() if c.enabled]
         if not enabled_conns:
             return False
         conn = random.choice(enabled_conns)
         conn.enabled = False
+        self.size -= 1
         self._invalidate_caches()
+        
         return True
     
     def mutate_add_node(self) -> bool:
+        self.size += 1
         enabled_conns = [c for c in self.genome.connections.values() if c.enabled]
         if not enabled_conns:
             return False
@@ -378,18 +385,21 @@ class Network:
         # create new node
         new_node_id = self._allocate_node_id()
         self.genome.add_node(NodeGene(new_node_id, 'hidden'))
+        self.size += 1
 
         # connect in -> new
         inn1 = self.innovation_tracker.get_connection_innovation(conn.in_node, new_node_id)
         self.genome.add_connection(ConnectionGene(conn.in_node, new_node_id, 1.0, True, inn1))
-
+        self.size += 1
         # connect new -> out
         inn2 = self.innovation_tracker.get_connection_innovation(new_node_id, conn.out_node)
         self.genome.add_connection(ConnectionGene(new_node_id, conn.out_node, conn.weight, True, inn2))
-
+        self.size += 1  
         self._invalidate_caches()
         return True
 
+    def get_size(self) -> int:
+        return self.size
     # ---------- crossover and distance ----------
     @staticmethod
     def crossover(parent1: Network, parent2: Network, fitness1: float, fitness2: float, rng_seed: Optional[int] = None) -> Network:

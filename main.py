@@ -5,7 +5,7 @@ import random
 import csv
 import os
 
-from GeneticModels import Environment, Agent, Food
+from GeneticModels import Environment, Agent, Food, Predator
 
 # Initialize Pygame
 pygame.init()
@@ -37,6 +37,11 @@ for i in range(env.grid_size//CELL_SIZE-1):
 for i in range(len(env.agents)):
     f = Food(env, screen)
     env.add_food(f)
+    
+# Seed some predators
+for i in range(100):
+    p = Predator(env, screen)
+    env.add_predator(p)
         
             
 while running:
@@ -61,6 +66,7 @@ while running:
     avg_age = int(sum(a.age for a in env.agents) / len(env.agents)) if env.agents else 0
     pygame.display.set_caption(
         f"Simulation Population: {len(env.agents)} "
+        f"Predators: {len(getattr(env, 'predators', []))} "
         f"Food: {len(env.foods)} "
         f"Max Age: {env.maxAge} "
         f"Avg Age: {avg_age} "

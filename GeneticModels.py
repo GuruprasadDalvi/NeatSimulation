@@ -35,8 +35,17 @@ class Environment:
         self.font = Font(None, 16)
         self.agents = []
         self.foods = []
+        self.predators = []
         self.increasing = True
-        self.maxAge = 0
+        self.maxAge = 1
+        self.maxFitness = 0
+        self.maxTraveled = 1
+        self.maxConsumed = 1
+        self.maxChild = 0
+        self.maxAttacked = 0
+        self.maxPredatorAttacksReceived = 0
+        self.maxPredatorHits = 0
+        self.maxGeneration = 0
         self.age = 0
         self.start_time = time.time()
         # Keep recent population counts for on-screen chart
@@ -46,6 +55,10 @@ class Environment:
         # Simulation control
         self.paused = False
         self._request_step = False
+        
+        #CSV file for max age
+        with open("max_fitness.csv", "w") as f:
+            f.write("size,generation,attacked,predator_attacks_received,predator_hits,consumed,child,age,traveled,fitness, population\n")
         
     def select(self,x,y):
         x=x//self.cell_size
@@ -68,9 +81,35 @@ class Environment:
         if not self.paused or self._request_step:
             for a in list(self.agents):
                 a.update()
+                if a.get_fitness()>self.maxFitness:
+                    self.maxFitness = a.get_fitness()
+                    self.maxFitnessAgent = a
+                if a.traveled>self.maxTraveled:
+                    self.maxTraveled = a.traveled
+                if a.consumed>self.maxConsumed:
+                    self.maxConsumed = a.consumed
+                if a.child>self.maxChild:
+                    self.maxChild = a.child
+                if a.attacked>self.maxAttacked:
+                    self.maxAttacked = a.attacked
+                if a.predator_attacks_received>self.maxPredatorAttacksReceived:
+                    self.maxPredatorAttacksReceived = a.predator_attacks_received
+                if a.predator_hits>self.maxPredatorHits:
+                    self.maxPredatorHits = a.predator_hits
+                if a.generation>self.maxGeneration:
+                    self.maxGeneration = a.generation
                 if a.age>self.maxAge:
                     self.maxAge = a.age
+                if a.get_fitness()>self.maxFitness:
+                    self.maxFitness = a.get_fitness()
+                    if a!=self.selected:
+                        #write to csv
+                        with open("max_fitness.csv", "a") as f:
+                            f.write(f"{a.get_csv()}, {len(self.agents)}\n")
                     self.selected = a
+            # Update predators
+            for p in list(self.predators):
+                p.update()
             self.age+=1
             # clear step request after processing one tick
             self._request_step = False
@@ -128,13 +167,13 @@ class Environment:
                 draw.rect(self.screen, [25,25,40], stats_rect, border_radius=6)
 
             texts = [
-                f"Attack:    {a.attacked} ",
+                f"Attack:    {a.attacked}, Traveled:  {round(a.traveled,4)}",
+                f"Predator Hits Received: {a.predator_attacks_received}",
+                f"Predator Hits: {a.predator_hits}",
                 f"Consumed:  {a.consumed}",
-                f"Age:       {round(a.age,4)}",
-                f"Children:  {round(a.child,4)}",
-                f"Energy:    {round(a.energy,4)}",
-                f"Traveled:  {round(a.traveled,4)}",
-                f"Generation: {a.generation}",
+                f"Age:       {round(a.age,4)}, Children:  {round(a.child,4)}",
+                f"Energy:{round(a.energy,1)}, Fitness: {round(a.get_fitness(),4)}",
+                f"Generation: {a.generation} Size: {a.brain.get_size()}",
                 f"X: {round(a.x)}, Y: {round(a.y)}"
             ]
             yPos = y_cursor + 15
@@ -245,7 +284,7 @@ class Environment:
         except:
             return -1.0
     
-    def damage(self,x,y,amount):
+    def damage(self,x,y,amount, attacker):
         try:
             a = self.grid[x][y]
             if type(a)==Agent:
@@ -255,6 +294,32 @@ class Environment:
                     self.agents.remove(a)
                     if self.selected == a:
                         self.selected = None 
+            elif type(a)==Predator:
+                a.energy -= amount
+                attacker.predator_hits += 1
+                if(a.energy<0):
+                    self.grid[a.x][a.y] = DefaultObj(self,a.x, a.y)
+                    self.predators.remove(a)
+                    if self.selected == a:
+                        self.selected = None 
+        except:
+            pass
+    
+    def predator_damage(self,x,y,amount):
+        try:
+            a = self.grid[x][y]
+            if type(a)==Agent:
+                a.energy -= amount
+                try:
+                    a.predator_attacks_received += 1
+                except Exception:
+                    pass
+                if a.energy < 0:
+                    self.grid[a.x][a.y] = DefaultObj(self,a.x, a.y)
+                    if a in self.agents:
+                        self.agents.remove(a)
+                    if self.selected == a:
+                        self.selected = None
         except:
             pass
     
@@ -272,6 +337,11 @@ class Environment:
         if type(self.grid[food.x][food.y]) == DefaultObj:
             self.grid[food.x][food.y]= food
             self.foods.append(food)
+
+    def add_predator(self, predator):
+        if type(self.grid[predator.x][predator.y]) == DefaultObj:
+            self.grid[predator.x][predator.y] = predator
+            self.predators.append(predator)
 
     # ===== Sound helpers =====
     def add_sound(self, x, y, value):
@@ -528,6 +598,8 @@ class Agent:
         self.energy = 2000
         self.maxenergy = 5000
         self.attacked = 0
+        self.predator_attacks_received = 0
+        self.predator_hits = 0
         self.consumed = 0
         self.child = 0
         self.age = 0
@@ -537,6 +609,19 @@ class Agent:
         self.visited = set()
         self.visited.add((self.x, self.y))
   
+    def get_fitness(self):
+        def safe_div(numerator, denominator):
+            return (numerator / denominator) if denominator not in (0, None) else 0.0
+        return 0.125 * (
+            safe_div(self.age, self.env.maxAge) +
+            safe_div(self.traveled, self.env.maxTraveled) +
+            safe_div(self.consumed, self.env.maxConsumed) +
+            safe_div(self.child, self.env.maxChild) +
+            safe_div(self.attacked, self.env.maxAttacked) +
+            safe_div(self.predator_attacks_received, self.env.maxPredatorAttacksReceived) +
+            safe_div(self.predator_hits, self.env.maxPredatorHits) +
+            safe_div(self.generation, self.env.maxGeneration)
+        )
     def update(self):
         self.age+=1
         base_inputs = [
@@ -584,6 +669,7 @@ class Agent:
         else:
             self.energy-=1*(self.env.temp/10)
             self.move(round(float(preds[0])),round(float(preds[1])))
+        self.energy-=self.brain.get_size()/10000
 
         # Emit sound to 9 surrounding cells (N, NE, E, SE, S, SW, W, NW, C)
         try:
@@ -644,16 +730,16 @@ class Agent:
     
     def attack(self):
             self.energy-=80
-            self.env.damage(self.x,self.y-1,20)
-            self.env.damage(self.x,self.y+1,20)
+            self.env.damage(self.x,self.y-1,20,self)
+            self.env.damage(self.x,self.y+1,20,self)
             
-            self.env.damage(self.x-1,self.y,10)
-            self.env.damage(self.x+1,self.y,10)
+            self.env.damage(self.x-1,self.y,10,self)
+            self.env.damage(self.x+1,self.y,10,self)
             
-            self.env.damage(self.x-1,self.y-1,5)
-            self.env.damage(self.x+1,self.y+1,5)
-            self.env.damage(self.x+1,self.y-1,5)
-            self.env.damage(self.x-1,self.y+1,5)
+            self.env.damage(self.x-1,self.y-1,5,self)
+            self.env.damage(self.x+1,self.y+1,5,self)
+            self.env.damage(self.x+1,self.y-1,5,self)
+            self.env.damage(self.x-1,self.y+1,5,self)
             self.attacked+=1
 
     def render(self):
@@ -762,9 +848,63 @@ class Agent:
                 return
         except:
             pass
+    def get_csv(self)->str:
+        return f"{self.brain.get_size()},{self.generation},{self.attacked},{self.predator_attacks_received},{self.predator_hits} ,{self.consumed},{self.child},{self.age},{self.traveled},{self.get_fitness()}"
             
         
         
+class Predator:
+    
+    def __init__(self, env, screen) -> None:
+        self.x = random.randint(0,len(env.grid[0])-1)
+        self.y = random.randint(0,len(env.grid)-1)
+        self.env = env
+        self.objId = 0.25
+        self.screen = screen
+        self.color = (220, 70, 70)
+    
+    def update(self):
+        # Attack all adjacent cells with small damage
+        try:
+            for dx, dy in [(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1)]:
+                self.env.predator_damage(self.x+dx, self.y+dy, 5)
+        except Exception:
+            pass
+        # Random simple movement (including staying still)
+        dirs = [(-1,0),(1,0),(0,-1),(0,1),(0,0)]
+        dx, dy = random.choice(dirs)
+        if dx != 0 or dy != 0:
+            self.move(dx, dy)
+    
+    def move(self, dx, dy):
+        try:
+            if self.env.isCellEmpty(self.x+dx, self.y+dy):
+                df = DefaultObj(self.env, self.x, self.y)
+                newX = (self.x + dx) % len(self.env.grid[self.x])
+                newY = (self.y + dy) % len(self.env.grid[self.y])
+                self.env.grid[newX][newY] = self
+                self.env.grid[self.x][self.y] = df
+                self.x = newX
+                self.y = newY
+        except Exception:
+            pass
+    
+    def render(self):
+        # Render as a red triangle
+        cell = self.env.cell_size
+        px = self.x * cell
+        py = self.y * cell
+        cx = px + cell // 2
+        cy = py + cell // 2
+        r = max(4, int(cell * 0.4))
+        points = [(cx, cy - r), (cx - r, cy + r), (cx + r, cy + r)]
+        try:
+            draw.polygon(self.env.screen, (220,70,70), points)
+            draw.polygon(self.env.screen, (30,30,30), points, 1)
+        except Exception:
+            pass
+
+
 class Food:
     
     def __init__(self, env, screen) -> None:
