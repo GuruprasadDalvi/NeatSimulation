@@ -63,12 +63,12 @@ while running:
     # Elapsed time since start, formatted to seconds like age indicator
     elapsed = getattr(env, 'elapsed_seconds', 0.0)
     # Average age of agents
-    avg_fitness = int(sum(a.get_fitness() for a in env.agents) / len(env.agents)) if env.agents else 0
+    avg_fitness = round(sum(a.get_fitness() for a in env.agents) / len(env.agents),4) if env.agents else 0
     pygame.display.set_caption(
         f"Simulation Population: {len(env.agents)} "
         f"Predators: {len(getattr(env, 'predators', []))} "
         f"Food: {len(env.foods)} "
-        f"Max Fitness: {env.maxFitness} "
+        f"Max Fitness: {round(env.maxFitness,4)} "
         f"Avg Fitness: {avg_fitness} "
         f"Env Age: {env.age} "
         f"Elapsed: {int(elapsed)}s"

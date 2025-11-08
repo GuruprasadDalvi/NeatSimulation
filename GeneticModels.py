@@ -37,10 +37,10 @@ class Environment:
         self.foods = []
         self.predators = []
         self.increasing = True
-        self.maxAge = 1
+        self.maxAge = 0
         self.maxFitness = 0
-        self.maxTraveled = 1
-        self.maxConsumed = 1
+        self.maxTraveled = 0
+        self.maxConsumed = 0
         self.maxChild = 0
         self.maxAttacked = 0
         self.maxPredatorAttacksReceived = 0
@@ -81,9 +81,6 @@ class Environment:
         if not self.paused or self._request_step:
             for a in list(self.agents):
                 a.update()
-                if a.get_fitness()>self.maxFitness:
-                    self.maxFitness = a.get_fitness()
-                    self.maxFitnessAgent = a
                 if a.traveled>self.maxTraveled:
                     self.maxTraveled = a.traveled
                 if a.consumed>self.maxConsumed:

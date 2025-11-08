@@ -1,2 +1,5 @@
 size,generation,attacked,predator_attacks_received,predator_hits,consumed,child,age,traveled,fitness, population
-60,0,1,0,0 ,0,0,1,0,0.25, 1554
+78,0,0,0,0 ,1,0,1,0,0.25, 1539
+69,0,1,0,0 ,1,0,1,0,0.375, 1539
+65,0,1,0,0 ,1,0,1,1,0.5, 1539
+66,0,0,1,0 ,2,1,2,1,0.5625, 1545
